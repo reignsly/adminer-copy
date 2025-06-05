@@ -1,4 +1,253 @@
 <?php
+
+define('CURTAIN_PASSWORD', 'securepassword123');
+define('MAX_CURTAIN_ATTEMPTS', 5);
+define('CURTAIN_BLOCK_DURATION', 900); // 15 minutes in seconds
+
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Initialize attempts if not set
+if (!isset($_SESSION['curtain_attempts'])) {
+    $_SESSION['curtain_attempts'] = 0;
+}
+
+if (isset($_SESSION['curtain_logged_in']) && $_SESSION['curtain_logged_in'] === true) {
+    // User is logged in, allow script to continue
+} else {
+    // Check if blocked
+    if ($_SESSION['curtain_attempts'] >= MAX_CURTAIN_ATTEMPTS && isset($_SESSION['curtain_block_until']) && time() < $_SESSION['curtain_block_until']) {
+        $remaining_time = ceil(($_SESSION['curtain_block_until'] - time()) / 60);
+        $block_message = "Too many failed attempts. Please try again in " . $remaining_time . " minute(s).";
+
+        // Generate CAPTCHA even when blocked, for display, though form won't process until block expires
+        $captcha_num1 = rand(1, 10);
+        $captcha_num2 = rand(1, 10);
+        $_SESSION['curtain_captcha_answer'] = $captcha_num1 + $captcha_num2;
+        $captcha_question = "What is " . $captcha_num1 . " + " . $captcha_num2 . "?";
+
+        ?>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Blocked</title>
+            <style>
+                body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+                .message-container { background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center; }
+                .message-container .captcha-question { margin-top: 15px; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <div class="message-container">
+                <p><?php echo $block_message; ?></p>
+                <p class="captcha-question"><?php echo $captcha_question; ?></p>
+            </div>
+        </body>
+        </html>
+        <?php
+        exit;
+    }
+
+    $error_message = '';
+    $captcha_error = false;
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['curtain_password']) || isset($_POST['curtain_captcha']))) {
+        // CAPTCHA check first
+        if (!isset($_POST['curtain_captcha']) || !isset($_SESSION['curtain_captcha_answer']) || intval($_POST['curtain_captcha']) !== $_SESSION['curtain_captcha_answer']) {
+            $error_message = 'Incorrect CAPTCHA answer.';
+            $captcha_error = true;
+            $_SESSION['curtain_attempts']++;
+            if ($_SESSION['curtain_attempts'] >= MAX_CURTAIN_ATTEMPTS) {
+                $_SESSION['curtain_block_until'] = time() + CURTAIN_BLOCK_DURATION;
+                // Check if block applies immediately
+                if (time() < $_SESSION['curtain_block_until']) {
+                    $remaining_time = ceil(($_SESSION['curtain_block_until'] - time()) / 60);
+                    $error_message = "Too many failed attempts (CAPTCHA). Please try again in " . $remaining_time . " minute(s).";
+                    // Display block message immediately
+                    $captcha_num1 = rand(1, 10); // Regenerate for display
+                    $captcha_num2 = rand(1, 10);
+                    $_SESSION['curtain_captcha_answer'] = $captcha_num1 + $captcha_num2; // Store new answer
+                    $captcha_question_for_block_page = "What is " . $captcha_num1 . " + " . $captcha_num2 . "?";
+                    ?>
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Blocked</title>
+                        <style>
+                            body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+                            .message-container { background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center; }
+                            .message-container .captcha-question { margin-top: 15px; font-weight: bold; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="message-container">
+                            <p><?php echo $error_message; ?></p>
+                            <p class="captcha-question"><?php echo $captcha_question_for_block_page; ?></p>
+                        </div>
+                    </body>
+                    </html>
+                    <?php
+                    exit;
+                }
+            }
+        } else { // CAPTCHA is correct, proceed to password check
+            if (isset($_POST['curtain_password']) && $_POST['curtain_password'] === CURTAIN_PASSWORD) {
+                $_SESSION['curtain_logged_in'] = true;
+                $_SESSION['curtain_attempts'] = 0; // Reset attempts
+                unset($_SESSION['curtain_block_until']); // Clear block time
+                unset($_SESSION['curtain_captcha_answer']); // Clear captcha answer
+                // Redirect to clear POST data and refresh
+                header("Location: " . $_SERVER['REQUEST_URI']);
+                exit;
+            } else { // Password incorrect
+                $error_message = 'Invalid password.';
+                $_SESSION['curtain_attempts']++;
+                if ($_SESSION['curtain_attempts'] >= MAX_CURTAIN_ATTEMPTS) {
+                    $_SESSION['curtain_block_until'] = time() + CURTAIN_BLOCK_DURATION;
+                    if (time() < $_SESSION['curtain_block_until']) {
+                        $remaining_time = ceil(($_SESSION['curtain_block_until'] - time()) / 60);
+                        $error_message = "Too many failed attempts (password). Please try again in " . $remaining_time . " minute(s).";
+                        // Display block message immediately
+                        $captcha_num1 = rand(1, 10); // Regenerate for display
+                        $captcha_num2 = rand(1, 10);
+                        $_SESSION['curtain_captcha_answer'] = $captcha_num1 + $captcha_num2; // Store new answer
+                        $captcha_question_for_block_page = "What is " . $captcha_num1 . " + " . $captcha_num2 . "?";
+                        ?>
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>Blocked</title>
+                            <style>
+                                body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+                                .message-container { background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center; }
+                                .message-container .captcha-question { margin-top: 15px; font-weight: bold; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="message-container">
+                                <p><?php echo $error_message; ?></p>
+                                 <p class="captcha-question"><?php echo $captcha_question_for_block_page; ?></p>
+                            </div>
+                        </body>
+                        </html>
+                        <?php
+                        exit;
+                    }
+                }
+            }
+        }
+        // If block expired, reset attempts so they can try again.
+        // This applies if CAPTCHA was wrong or password was wrong, and the attempt limit was reached but block expired.
+        if ($_SESSION['curtain_attempts'] >= MAX_CURTAIN_ATTEMPTS && isset($_SESSION['curtain_block_until']) && time() >= $_SESSION['curtain_block_until']) {
+            $_SESSION['curtain_attempts'] = $captcha_error ? 1 : 0; // If captcha error, this is the 1st attempt for password. If password error, reset fully if they get here.
+            if ($captcha_error) $_SESSION['curtain_attempts'] = 1; // If captcha error, this is the first attempt for this captcha cycle
+            else if (!$captcha_error && $_POST['curtain_password'] !== CURTAIN_PASSWORD) $_SESSION['curtain_attempts'] = 1; // If password error, it's a new attempt cycle
+            else $_SESSION['curtain_attempts'] = 0;
+
+            unset($_SESSION['curtain_block_until']);
+            if ($error_message === 'Incorrect CAPTCHA answer.') {
+                 // Keep CAPTCHA error if that was the primary error
+            } else if ($captcha_error) {
+                 // This case should ideally not be hit if captcha error leads to early exit or specific message
+            } else {
+                $error_message = 'Invalid password.'; // Default to password error if not captcha
+            }
+        }
+    }
+
+    // Generate new CAPTCHA for the form display if it's a GET request or if there was a CAPTCHA error on POST
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST' || $captcha_error || $error_message !== '') {
+        $captcha_num1 = rand(1, 10);
+        $captcha_num2 = rand(1, 10);
+        $_SESSION['curtain_captcha_answer'] = $captcha_num1 + $captcha_num2;
+        $captcha_question = "What is " . $captcha_num1 . " + " . $captcha_num2 . "?";
+    }
+
+
+    // If not logged in and no correct password submitted, display form or error
+    ?>
+    <!DOCTYPE html>
+    <html>
+                        <style>
+                            body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+                            .message-container { background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); text-align: center; }
+                             .message-container .captcha-question { margin-top: 15px; font-weight: bold; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="message-container">
+                            <p><?php echo $error_message; ?></p>
+                             <p class="captcha-question"><?php echo $captcha_question_for_block_page; ?></p>
+                        </div>
+                    </body>
+                    </html>
+                    <?php
+                    exit;
+                }
+            }
+            // If not blocked yet, or block just expired, show invalid password.
+            // This part might be complex due to CAPTCHA failure also incrementing attempts.
+            // We ensure error_message reflects the most recent error (CAPTCHA or password).
+            if (!$captcha_error) { // Only set to 'Invalid password' if CAPTCHA wasn't the issue.
+                 $error_message = 'Invalid password.';
+            }
+
+            if ($_SESSION['curtain_attempts'] >= MAX_CURTAIN_ATTEMPTS && isset($_SESSION['curtain_block_until']) && time() >= $_SESSION['curtain_block_until']) {
+                 // If block expired, reset attempts.
+                 // If CAPTCHA was wrong, this is the first attempt for the *password* with a new CAPTCHA.
+                 // If password was wrong, it's a fresh attempt cycle.
+                $_SESSION['curtain_attempts'] = 1; // Reset to 1 as this is a new failed attempt (either for new CAPTCHA or new password try)
+                unset($_SESSION['curtain_block_until']);
+            }
+        }
+    }
+
+    // Generate CAPTCHA for the login form if not already generated (e.g. on GET request or if POST but error occurred)
+    if (!isset($captcha_question) || $error_message !== '') {
+        $captcha_num1 = rand(1, 10);
+        $captcha_num2 = rand(1, 10);
+        $_SESSION['curtain_captcha_answer'] = $captcha_num1 + $captcha_num2;
+        $captcha_question = "What is " . $captcha_num1 . " + " . $captcha_num2 . "?";
+    }
+
+
+    // If not logged in and no correct password submitted, display form or error
+    ?>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Login</title>
+        <style>
+            body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+            .login-container { background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+            .login-container h2 { margin-top: 0; }
+            .login-container input[type="password"], .login-container input[type="text"] { padding: 10px; width: calc(100% - 22px); margin-bottom: 10px; border: 1px solid #ccc; border-radius: 3px; }
+            .login-container input[type="submit"] { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+            .login-container input[type="submit"]:hover { background-color: #0056b3; }
+            .error { color: red; margin-bottom: 10px; }
+            .captcha-question { margin-bottom: 5px; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="login-container">
+            <h2>Enter Password</h2>
+            <?php if ($error_message): ?>
+                <p class="error"><?php echo $error_message; ?></p>
+            <?php endif; ?>
+            <form method="POST" action="">
+                <div class="captcha-question"><?php echo $captcha_question; ?></div>
+                <input type="text" name="curtain_captcha" required autocomplete="off"><br>
+                <input type="password" name="curtain_password" required>
+                <input type="submit" value="Login">
+            </form>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit; // Prevent Adminer from loading
+}
+
 /** Adminer - Compact database management
 * @link https://www.adminer.org/
 * @author Jakub Vrana, https://www.vrana.cz/
