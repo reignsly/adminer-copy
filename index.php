@@ -1,5 +1,8 @@
 <?php
 // curtain.php
+// set default timezone
+@ini_set('date.timezone', 'Asia/Manila');
+date_default_timezone_set('Asia/Manila');
 ob_start(); // start output buffering early to avoid headers already sent
 // use Adminer's session name so Adminer doesn't try to change session settings later
 if (session_status() === PHP_SESSION_NONE) {
